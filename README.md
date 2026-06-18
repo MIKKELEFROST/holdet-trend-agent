@@ -14,7 +14,8 @@ Holdet hæver en spillers pris efter hver runde bl.a. ud fra nettokøb. Måler m
 4. **scorer køb-kandidater** og skriver en rapport,
 5. **selv-validerer**: tjekker om tidligere forudsigelser faktisk steg → hit-rate i rapporten.
 
-👉 **Læs seneste rapport:** [`reports/latest.md`](reports/latest.md) (opdateres hver time).
+👉 **Dashboard:** https://mikkelefrost.github.io/holdet-trend-agent/ (opdateres hver time)
+👉 **Eller markdown-rapporten:** [`reports/latest.md`](reports/latest.md)
 
 ## Score
 

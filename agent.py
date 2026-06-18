@@ -508,6 +508,92 @@ def write_report(rows, meta, val, ts, rnd):
         f.write(body)
 
 
+def write_dashboard(rows, meta, val, ts, rnd):
+    import html as _h
+    dt = parse_iso(ts)
+    esc = lambda x: _h.escape(str(x)) if x is not None else "–"
+    top = rows[:30]
+    maxtrend = max([r["trend"] for r in rows] or [1]) or 1
+    maxscore = max([r["score"] for r in rows] or [1]) or 1
+    posc = {"Keeper": "gk", "Forsvar": "def", "Midtbane": "mid", "Angreb": "att"}
+
+    def trow(i, r):
+        tw = max(3, round((r["trend"] / maxtrend) * 64))
+        sw = max(3, round((max(0, r["score"]) / maxscore) * 64))
+        dpop = f"{r['dpop24']*100:+.2f} pp" if isinstance(r["dpop24"], (int, float)) else "–"
+        return (f'<tr><td class="n">{i}</td><td class="nm">{esc(r["name"])}</td>'
+                f'<td><span class="chip {posc.get(r["pos"],"")}">{esc(r["pos"])}</span></td>'
+                f'<td class="mut">{esc(r["land"])}</td><td class="n">{fmt_eur(r["price"])}</td>'
+                f'<td class="n">{_num(r["trend"])}<span class="bar tb" style="width:{tw}px"></span></td>'
+                f'<td class="n">{dpop}</td>'
+                f'<td class="n"><b>{r["score"]:.0f}</b><span class="bar sb" style="width:{sw}px"></span></td>'
+                f'<td class="why">{esc(why(r))}</td></tr>')
+
+    def card(r):
+        d6 = f' · Δpop6 {r["dpop6"]*100:+.2f}pp' if isinstance(r.get("dpop6"), (int, float)) else ""
+        return (f'<div class="card"><div class="cn">{esc(r["name"])}</div>'
+                f'<div class="cm">{esc(r["pos"])} · {esc(r["land"])} · {fmt_eur(r["price"])}</div>'
+                f'<div class="cv">tendens {_num(r["trend"])}{d6}</div></div>')
+
+    early = [r for r in rows if r["sig"]["dpop6"] >= 0.5 and r["sig"]["lag"] >= 0.2][:8]
+    diff = [r for r in rows if r["pop"] < 0.05 and r["sig"]["trend"] >= 0.3][:8]
+    val_html = (f'<b>{val["rose"]}/{val["n"]}</b> steg = <b>{val["hit"]*100:.0f}%</b>'
+                if val["n"] and val["hit"] is not None else "afventer næste runde")
+    warm = "" if meta["have24"] else ('<div class="warn">⏳ Opvarmer — acceleration-signaler (Δpop) '
+            'kræver et par dages historik. Indtil da rangeres efter efterspørgsel + kampprogram + lav popularitet.</div>')
+    html = f"""<!DOCTYPE html><html lang="da"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trend-agent — køb før de stiger</title>
+<style>
+:root{{--bg:#0f1a14;--panel:#16241c;--line:#243a2e;--ink:#e8f1ea;--mut:#90a89a;--brand:#27c46a;--up:#27c46a;--down:#e1604f;--hot:#e8821e}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}}
+.wrap{{max-width:1180px;margin:0 auto;padding:22px 16px 48px}}
+h1{{font-size:22px;margin:0 0 2px}}.sub{{color:var(--mut);font-size:13px}}
+.bar1{{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}}
+.stat{{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 14px}}
+.stat .l{{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700}}
+.stat .v{{font-weight:800;font-size:15px;margin-top:2px}}
+.warn{{background:#2a230f;border:1px solid #574613;color:#e7c873;border-radius:10px;padding:10px 13px;margin:12px 0;font-size:13px}}
+.card-tbl{{background:var(--panel);border:1px solid var(--line);border-radius:13px;overflow:hidden;margin-top:8px}}
+table{{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}}
+th{{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--mut);padding:11px 12px;border-bottom:2px solid var(--line);white-space:nowrap}}
+td{{padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}}
+tr:last-child td{{border-bottom:0}}td.n{{text-align:right}}td.nm{{font-weight:700}}td.mut{{color:var(--mut)}}
+td.why{{color:var(--mut);font-size:12.5px;white-space:normal}}
+.chip{{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700}}
+.gk{{background:#3a2f08;color:#e9c763}}.def{{background:#0e2f49;color:#7cc0f0}}.mid{{background:#0f3a22;color:#6fdd9b}}.att{{background:#3d1414;color:#ef8d7e}}
+.bar{{display:inline-block;height:6px;border-radius:3px;vertical-align:middle;margin-left:8px;min-width:2px}}.tb{{background:var(--hot)}}.sb{{background:var(--brand)}}
+h2{{font-size:15px;margin:26px 0 8px}}
+.cards{{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}}
+.card{{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:11px 13px}}
+.cn{{font-weight:800}}.cm{{color:var(--mut);font-size:12px;margin:2px 0 4px}}.cv{{color:var(--up);font-weight:700;font-size:12.5px}}
+.mut{{color:var(--mut)}}footer{{color:var(--mut);font-size:12px;margin-top:28px;line-height:1.6}}
+a{{color:var(--brand)}}
+</style></head><body><div class="wrap">
+<h1>⚡ Trend-agent — køb før de stiger</h1>
+<div class="sub">Spotter spillere hvis efterspørgsel accelererer, før Holdet justerer prisen · Kilde: Holdet.dk (game 616)</div>
+<div class="bar1">
+<div class="stat"><div class="l">Sidst opdateret</div><div class="v">{dt.strftime('%d-%m-%Y %H:%M')} UTC</div></div>
+<div class="stat"><div class="l">Seneste runde</div><div class="v">{rnd if rnd else '–'}</div></div>
+<div class="stat"><div class="l">Historik-span</div><div class="v">{meta['span']} t</div></div>
+<div class="stat"><div class="l">Selv-validering</div><div class="v">{val_html}</div></div>
+</div>
+{warm}
+<h2>Top køb-kandidater</h2>
+<div class="card-tbl"><table><thead><tr><th>#</th><th>Spiller</th><th>Pos</th><th>Land</th><th>Pris</th><th>Tendens</th><th>Δpop 24t</th><th>Score</th><th>Hvorfor</th></tr></thead>
+<tbody>{''.join(trow(i,r) for i,r in enumerate(top,1))}</tbody></table></div>
+<h2>🚀 Tidlige bevægelser</h2><div class="cards">{''.join(card(r) for r in early) or '<div class="mut">— (kommer når historikken er varm)</div>'}</div>
+<h2>💎 Under radaren</h2><div class="cards">{''.join(card(r) for r in diff) or '<div class="mut">—</div>'}</div>
+<footer>Score = tendens (køb lige nu) + Δpopularitet (6t/24t) + headroom (pris ikke fulgt med) + let kampprogram − straf for høj popularitet.
+Priser justeres pr. runde, så selv-valideringen måles rundevis. Forudsigelser er sandsynlige, ikke sikre — agenten måler efterspørgsels-momentum, ikke kampbegivenheder.
+Opdateres automatisk hver time · <a href="https://github.com/MIKKELEFROST/holdet-trend-agent">kildekode</a></footer>
+</div></body></html>"""
+    tmp = os.path.join(HERE, "index.html.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(html)
+    os.replace(tmp, os.path.join(HERE, "index.html"))
+
+
 def main():
     try:
         ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -522,6 +608,10 @@ def main():
         append_history(snap, rnd, ts)
         append_prediction(rows, ts, rnd)
         write_report(rows, meta, val, ts, rnd)
+        try:
+            write_dashboard(rows, meta, val, ts, rnd)
+        except Exception as e:
+            print("dashboard-fejl:", e, file=sys.stderr)
         try:
             nstat = notify_slack(rows, meta, rnd, ts)
         except Exception as e:
