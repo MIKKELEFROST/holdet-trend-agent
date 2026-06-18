@@ -37,6 +37,25 @@ Vægtene står i `W` øverst i `agent.py` og kan justeres. Kun spilbare spillere
   agenten måler efterspørgsels-momentum, ikke kampbegivenheder (mål/assist findes ikke i API'et).
 - `predictions.jsonl` + selv-valideringen viser agentens reelle træfsikkerhed over tid.
 
+## Slack-notifikationer
+
+Agenten sender en Slack-besked når der dukker stærke kandidater op (dedup + 12 t cooldown pr. spiller,
+så det ikke spammer). Under opvarmning sendes én "dagens top"-digest om dagen; når historikken er varm,
+sendes **tidlige bevægelser** (popularitet stiger hurtigt + pris ikke fulgt med).
+
+**Opsætning (engangs):**
+1. Opret en Slack **Incoming Webhook**: <https://api.slack.com/messaging/webhooks> → "Create app" →
+   "Incoming Webhooks" → slå til → "Add New Webhook to Workspace" → vælg kanalen. Kopiér webhook-URL'en.
+2. Læg URL'en i repoets secrets (URL'en er hemmelig — del den ikke):
+   ```bash
+   gh secret set SLACK_WEBHOOK_URL --repo MIKKELEFROST/holdet-trend-agent
+   # indsæt webhook-URL'en når den beder om den
+   ```
+   (eller GitHub → repo → Settings → Secrets and variables → Actions → New repository secret,
+   navn `SLACK_WEBHOOK_URL`.)
+
+Uden secret'en kører agenten helt som normalt — den springer bare Slack over.
+
 ## Kør lokalt
 
 ```bash

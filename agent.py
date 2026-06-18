@@ -36,6 +36,13 @@ TOP_N        = 25
 PRED_TRACK   = 15
 SNAP_TOL     = 0.4           # et "24t-snapshot" må højst være 40% fra 24t (ellers None)
 W = dict(trend=0.30, dpop24=0.30, dpop6=0.15, fix=0.10, lag=0.15, pop_pen=0.20)
+# Slack-notifikationer (kræver GitHub-secret SLACK_WEBHOOK_URL)
+NOTIFY_COOLDOWN_H = 12       # samme spiller alarmeres ikke oftere end dette
+NOTIFY_DPOP6 = 0.5           # tærskel for "accelererer" i en alarm
+NOTIFY_LAG = 0.2            # tærskel for "pris ikke fulgt med"
+NOTIFY_MAX = 5              # max spillere pr. besked
+REPO_REPORT = "https://github.com/MIKKELEFROST/holdet-trend-agent/blob/main/reports/latest.md"
+NOTIFIED = os.path.join(HERE, "notified.json")
 
 
 # ---------- helpers ----------
@@ -353,6 +360,86 @@ def append_prediction(rows, ts, rnd):
         f.write(json.dumps({"ts": ts, "round": rnd, "items": items}, ensure_ascii=False, separators=(",", ":")) + "\n")
 
 
+# ---------- Slack-notifikation (kun nye/stærke signaler; dedup + cooldown) ----------
+def _load_notified():
+    try:
+        return json.load(open(NOTIFIED))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_notified(d):
+    tmp = NOTIFIED + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f)
+    os.replace(tmp, NOTIFIED)
+
+
+def _num(v):
+    return "{:,.0f}".format(v).replace(",", ".") if isinstance(v, (int, float)) else "–"
+
+
+def notify_slack(rows, meta, rnd, ts):
+    hook = os.environ.get("SLACK_WEBHOOK_URL")
+    if not hook:
+        return "skip (ingen webhook)"
+    state = _load_notified()
+    now = parse_iso(ts)
+    today = now.strftime("%Y-%m-%d")
+    warm = bool(meta.get("have6") or meta.get("have24"))
+
+    def recent(pid):
+        t = state.get(pid)
+        try:
+            return t and (now.timestamp() - parse_iso(t).timestamp()) / 3600 < NOTIFY_COOLDOWN_H
+        except (ValueError, TypeError):
+            return False
+
+    if warm:
+        kind = "tidlige bevægelser"
+        picks = []
+        for r in rows:
+            if r["sig"]["dpop6"] >= NOTIFY_DPOP6 and r["sig"]["lag"] >= NOTIFY_LAG and not recent(r["pid"]):
+                picks.append(r)
+            if len(picks) >= NOTIFY_MAX:
+                break
+    else:
+        if state.get("_digest") == today:
+            return "skip (digest sendt i dag)"
+        kind = "dagens top (opvarmning)"
+        picks = rows[:NOTIFY_MAX]
+
+    if not picks:
+        return "ingen nye kandidater"
+
+    lines = []
+    for r in picks:
+        dp = (f" · Δpop6 {r['dpop6']*100:+.2f}pp" if isinstance(r.get("dpop6"), (int, float)) else "")
+        lines.append(f"• *{r['name']}* ({r['pos']}, {r['land']}) — {fmt_eur(r['price'])} · "
+                     f"tendens {_num(r['trend'])}{dp}")
+    text = (f"*⚡ Trend-agent — {kind}* (seneste runde {rnd})\n" + "\n".join(lines) +
+            f"\n<{REPO_REPORT}|Se fuld rapport>")
+
+    if hook == "DEBUG":            # lokal test: print i stedet for at sende
+        print("--- SLACK DEBUG ---\n" + text + "\n-------------------")
+        return "debug"
+
+    data = json.dumps({"text": text}).encode("utf-8")
+    req = urllib.request.Request(hook, data=data, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            r.read()
+    except Exception as e:
+        return f"slack-fejl: {e}"
+
+    for r in picks:
+        state[r["pid"]] = ts
+    if not warm:
+        state["_digest"] = today
+    _save_notified(state)
+    return f"sendt {len(picks)}"
+
+
 # ---------- rapport ----------
 def write_report(rows, meta, val, ts, rnd):
     os.makedirs(REPORTS, exist_ok=True)
@@ -435,8 +522,12 @@ def main():
         append_history(snap, rnd, ts)
         append_prediction(rows, ts, rnd)
         write_report(rows, meta, val, ts, rnd)
+        try:
+            nstat = notify_slack(rows, meta, rnd, ts)
+        except Exception as e:
+            nstat = f"notify-fejl: {e}"
         print(f"OK · {len(snap)} spillere · runde {rnd} · span {meta['span']}t · "
-              f"top: {rows[0]['name']} ({rows[0]['score']:.0f}) · validering n={val['n']}")
+              f"top: {rows[0]['name']} ({rows[0]['score']:.0f}) · validering n={val['n']} · slack: {nstat}")
         return 0
     except Exception as e:
         import traceback

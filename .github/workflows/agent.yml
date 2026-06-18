@@ -22,6 +22,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Kør agent
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: python agent.py
       - name: Commit snapshot + rapport
         run: |
